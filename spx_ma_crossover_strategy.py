@@ -76,7 +76,7 @@ class SPXTrendFollowingStrategy:
         """
         Generate buy/sell signals based on MA crossover
         """
-        if self.data is None:
+        if self.data is None or len(self.data) == 0:
             raise ValueError("Moving averages not calculated. Call calculate_moving_averages() first.")
         
         # Initialize signals DataFrame
@@ -90,9 +90,10 @@ class SPXTrendFollowingStrategy:
         self.signals['signal'] = 0
         
         # Buy signal when fast MA crosses above slow MA
-        self.signals['signal'][self.fast_ma:] = np.where(
-            self.signals['fast_ma'][self.fast_ma:] > self.signals['slow_ma'][self.fast_ma:], 1, 0
-        )
+        if len(self.signals) > self.fast_ma:
+            self.signals['signal'][self.fast_ma:] = np.where(
+                self.signals['fast_ma'][self.fast_ma:] > self.signals['slow_ma'][self.fast_ma:], 1, 0
+            )
         
         # Generate trading positions (difference in signals)
         self.signals['positions'] = self.signals['signal'].diff()
@@ -102,7 +103,10 @@ class SPXTrendFollowingStrategy:
         self.signals['sell_signal'] = np.where(self.signals['positions'] == -1, 1, 0)
         
         # Calculate signal strength based on MA separation
-        self.signals['signal_strength'] = abs(self.data['MA_diff_pct'])
+        if 'MA_diff_pct' in self.data.columns:
+            self.signals['signal_strength'] = abs(self.data['MA_diff_pct'])
+        else:
+            self.signals['signal_strength'] = 0
         
         # Remove NaN values
         self.signals = self.signals.dropna()
@@ -115,7 +119,7 @@ class SPXTrendFollowingStrategy:
         """
         Backtest the strategy and calculate performance metrics
         """
-        if self.signals is None:
+        if self.signals is None or len(self.signals) == 0:
             raise ValueError("Signals not generated. Call generate_signals() first.")
         
         # Initialize portfolio
@@ -188,7 +192,7 @@ class SPXTrendFollowingStrategy:
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
         
         # Number of trades
-        num_trades = self.signals['buy_signal'].sum()
+        num_trades = self.signals['buy_signal'].sum() if self.signals is not None else 0
         
         # Beta calculation
         covariance = np.cov(portfolio_clean['strategy_returns'].dropna(), 
@@ -225,8 +229,11 @@ class SPXTrendFollowingStrategy:
         """
         Create comprehensive visualization of strategy performance
         """
-        if self.portfolio is None:
+        if self.portfolio is None or len(self.portfolio) == 0:
             raise ValueError("Strategy not backtested. Call backtest_strategy() first.")
+        
+        if self.signals is None or len(self.signals) == 0:
+            raise ValueError("Signals not generated. Call generate_signals() first.")
         
         fig, axes = plt.subplots(2, 3, figsize=figsize)
         
@@ -240,10 +247,12 @@ class SPXTrendFollowingStrategy:
         buy_signals = self.signals[self.signals['buy_signal'] == 1]
         sell_signals = self.signals[self.signals['sell_signal'] == 1]
         
-        ax1.scatter(buy_signals.index, buy_signals['price'], color='green', marker='^', 
-                   s=50, label='Buy Signal', zorder=5)
-        ax1.scatter(sell_signals.index, sell_signals['price'], color='red', marker='v', 
-                   s=50, label='Sell Signal', zorder=5)
+        if len(buy_signals) > 0:
+            ax1.scatter(buy_signals.index, buy_signals['price'], color='green', marker='^', 
+                       s=50, label='Buy Signal', zorder=5)
+        if len(sell_signals) > 0:
+            ax1.scatter(sell_signals.index, sell_signals['price'], color='red', marker='v', 
+                       s=50, label='Sell Signal', zorder=5)
         
         ax1.set_title('SPY Price with Moving Average Crossover Signals')
         ax1.set_xlabel('Date')
@@ -254,10 +263,11 @@ class SPXTrendFollowingStrategy:
         # Plot 2: Cumulative Returns Comparison
         ax2 = axes[0, 1]
         portfolio_clean = self.portfolio.dropna()
-        ax2.plot(portfolio_clean.index, portfolio_clean['strategy_cumulative'], 
-                label='Strategy', linewidth=2)
-        ax2.plot(portfolio_clean.index, portfolio_clean['market_cumulative'], 
-                label='Buy & Hold', linewidth=2)
+        if len(portfolio_clean) > 0:
+            ax2.plot(portfolio_clean.index, portfolio_clean['strategy_cumulative'], 
+                    label='Strategy', linewidth=2)
+            ax2.plot(portfolio_clean.index, portfolio_clean['market_cumulative'], 
+                    label='Buy & Hold', linewidth=2)
         ax2.set_title('Cumulative Returns Comparison')
         ax2.set_xlabel('Date')
         ax2.set_ylabel('Cumulative Return')
@@ -266,10 +276,11 @@ class SPXTrendFollowingStrategy:
         
         # Plot 3: Portfolio Values
         ax3 = axes[0, 2]
-        ax3.plot(portfolio_clean.index, portfolio_clean['portfolio_value'], 
-                label='Strategy Portfolio', linewidth=2)
-        ax3.plot(portfolio_clean.index, portfolio_clean['benchmark_value'], 
-                label='Buy & Hold Portfolio', linewidth=2)
+        if len(portfolio_clean) > 0:
+            ax3.plot(portfolio_clean.index, portfolio_clean['portfolio_value'], 
+                    label='Strategy Portfolio', linewidth=2)
+            ax3.plot(portfolio_clean.index, portfolio_clean['benchmark_value'], 
+                    label='Buy & Hold Portfolio', linewidth=2)
         ax3.set_title('Portfolio Value Over Time')
         ax3.set_xlabel('Date')
         ax3.set_ylabel('Portfolio Value ($)')
@@ -278,9 +289,10 @@ class SPXTrendFollowingStrategy:
         
         # Plot 4: Drawdown
         ax4 = axes[1, 0]
-        ax4.fill_between(portfolio_clean.index, portfolio_clean['drawdown'], 0, 
-                        color='red', alpha=0.3)
-        ax4.plot(portfolio_clean.index, portfolio_clean['drawdown'], color='red', linewidth=1)
+        if len(portfolio_clean) > 0:
+            ax4.fill_between(portfolio_clean.index, portfolio_clean['drawdown'], 0, 
+                            color='red', alpha=0.3)
+            ax4.plot(portfolio_clean.index, portfolio_clean['drawdown'], color='red', linewidth=1)
         ax4.set_title('Strategy Drawdown')
         ax4.set_xlabel('Date')
         ax4.set_ylabel('Drawdown (%)')
@@ -288,10 +300,11 @@ class SPXTrendFollowingStrategy:
         
         # Plot 5: Rolling Returns (30-day)
         ax5 = axes[1, 1]
-        rolling_strategy = portfolio_clean['strategy_returns'].rolling(30).mean() * 100
-        rolling_market = portfolio_clean['market_returns'].rolling(30).mean() * 100
-        ax5.plot(portfolio_clean.index, rolling_strategy, label='Strategy (30D)', linewidth=1)
-        ax5.plot(portfolio_clean.index, rolling_market, label='Market (30D)', linewidth=1)
+        if len(portfolio_clean) > 30:
+            rolling_strategy = portfolio_clean['strategy_returns'].rolling(30).mean() * 100
+            rolling_market = portfolio_clean['market_returns'].rolling(30).mean() * 100
+            ax5.plot(portfolio_clean.index, rolling_strategy, label='Strategy (30D)', linewidth=1)
+            ax5.plot(portfolio_clean.index, rolling_market, label='Market (30D)', linewidth=1)
         ax5.set_title('30-Day Rolling Returns')
         ax5.set_xlabel('Date')
         ax5.set_ylabel('Return (%)')
@@ -300,8 +313,10 @@ class SPXTrendFollowingStrategy:
         
         # Plot 6: Signal Strength Distribution
         ax6 = axes[1, 2]
-        signal_strength = self.signals['signal_strength'].dropna()
-        ax6.hist(signal_strength, bins=30, alpha=0.7, edgecolor='black')
+        if 'signal_strength' in self.signals.columns:
+            signal_strength = self.signals['signal_strength'].dropna()
+            if len(signal_strength) > 0:
+                ax6.hist(signal_strength, bins=30, alpha=0.7, edgecolor='black')
         ax6.set_title('Distribution of Signal Strength')
         ax6.set_xlabel('MA Separation (%)')
         ax6.set_ylabel('Frequency')
